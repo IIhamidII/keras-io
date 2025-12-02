@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digit & Letter Classifier</title>
+    <!-- Load TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <!-- Load Google Sign-In -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .logo {
+            width: 120px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        #status {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        #canvas {
+            border: 3px solid #667eea;
+            border-radius: 10px;
+            cursor: crosshair;
+            background: white;
+            margin: 20px auto;
+            display: block;
+            touch-action: none;
+        }
+
+        .button-group {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        button {
+            padding: 12px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+
+        #clearBtn {
+            background: #ff6b6b;
+            color: white;
+        }
+
+        #clearBtn:hover {
+            background: #ff5252;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 107, 107, 0.3);
+        }
+
+        #predictBtn {
+            background: #667eea;
+            color: white;
+        }
+
+        #predictBtn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        #result {
+            margin-top: 20px;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .instruction {
+            color: #666;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+
+        #loginContainer {
+            text-align: center;
+            padding: 40px;
+        }
+
+        #loginContainer h2 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        #appContainer {
+            display: none;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .user-info img {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+        }
+
+        .user-info span {
+            font-weight: 600;
+            color: #333;
+        }
+
+        #signOutBtn {
+            background: #ea4335;
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: auto;
+        }
+
+        #signOutBtn:hover {
+            background: #d33828;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <img src="https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png" alt="Google"
+            class="logo">
+
+        <!-- Login Screen -->
+        <div id="loginContainer">
+            <h1>Digit & Letter Classifier</h1>
+            <h2>Sign in to continue</h2>
+            <div id="g_id_onload" data-client_id="YOUR_CLIENT_ID.apps.googleusercontent.com"
+                data-callback="handleCredentialResponse">
+            </div>
+            <div class="g_id_signin" data-type="standard"></div>
+            <p style="margin-top: 20px; color: #666; font-size: 14px;">
+                ⚠️ <strong>Setup Required:</strong> Replace YOUR_CLIENT_ID with your actual Google OAuth Client ID
+            </p>
+        </div>
+
+        <!-- App Container (hidden until logged in) -->
+        <div id="appContainer">
+            <div class="user-info">
+                <img id="userPhoto" src="" alt="User">
+                <span id="userName"></span>
+                <button id="signOutBtn">Sign Out</button>
+            </div>
+
+            <h1>Digit & Letter Classifier</h1>
+            <p class="instruction">Draw a digit (0-9) or letter (A-E) in the box below</p>
+            <div id="status">Loading model...</div>
+
+            <canvas id="canvas" width="280" height="280"></canvas>
+
+            <div class="button-group">
+                <button id="clearBtn">Clear</button>
+                <button id="predictBtn">Predict</button>
+            </div>
+
+            <div id="result">Draw a digit and click Predict!</div>
+        </div>
+    </div>
+
+    <script>
+        let model;
+        let currentUser = null;
+        
+        // Google Sign-In callback
+        function handleCredentialResponse(response) {
+            // Decode JWT token to get user info
+            const userInfo = parseJwt(response.credential);
+            currentUser = userInfo;
+            
+            // Show user info
+            document.getElementById('userName').textContent = userInfo.name;
+            document.getElementById('userPhoto').src = userInfo.picture;
+            
+            // Hide login, show app
+            document.getElementById('loginContainer').style.display = 'none';
+            document.getElementById('appContainer').style.display = 'block';
+            
+            // Load the model
+            loadModel();
+        }
+        
+        // Parse JWT token
+        function parseJwt(token) {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+            return JSON.parse(jsonPayload);
+        }
+        
+        // Sign out
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('signOutBtn')?.addEventListener('click', () => {
+                currentUser = null;
+                document.getElementById('loginContainer').style.display = 'block';
+                document.getElementById('appContainer').style.display = 'none';
+            });
+        });
+        
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas?.getContext('2d');
+        const status = document.getElementById('status');
+        const result = document.getElementById('result');
+        let isDrawing = false;
+
+        // Initialize canvas
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 20;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Drawing functions
+        function startDrawing(e) {
+            isDrawing = true;
+            draw(e);
+        }
+
+        function stopDrawing() {
+            isDrawing = false;
+            ctx.beginPath();
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX || e.touches[0].clientX) - rect.left;
+            const y = (e.clientY || e.touches[0].clientY) - rect.top;
+
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        // Event listeners
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            startDrawing(e);
+        });
+        canvas.addEventListener('touchend', stopDrawing);
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            draw(e);
+        });
+
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            result.innerText = 'Draw a digit and click Predict!';
+        });
+
+        document.getElementById('predictBtn').addEventListener('click', async () => {
+            if (!model) {
+                result.innerText = 'Model not loaded yet!';
+                return;
+            }
+
+            // Get image data and preprocess
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+            // Create a temporary canvas to resize to 28x28
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 28;
+            tempCanvas.height = 28;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(canvas, 0, 0, 28, 28);
+
+            const resizedData = tempCtx.getImageData(0, 0, 28, 28);
+
+            // Convert to grayscale and normalize
+            const input = tf.tidy(() => {
+                // Convert to tensor
+                let tensor = tf.browser.fromPixels(resizedData, 1);
+                // Normalize to [0, 1]
+                tensor = tensor.div(255.0);
+                // Invert colors (MNIST expects white digit on black background)
+                tensor = tf.scalar(1.0).sub(tensor);
+                // Add batch dimension
+                return tensor.expandDims(0);
+            });
+
+            // Predict
+            const prediction = model.predict(input);
+            const values = await prediction.data();
+            const classIdx = values.indexOf(Math.max(...values));
+            const confidence = (Math.max(...values) * 100).toFixed(1);
+
+            // Map class index to character (0-9, A-E)
+            const classMap = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E'];
+            const predicted = classMap[classIdx];
+
+            result.innerText = `Predicted: ${predicted} (${confidence}% confidence)`;
+
+            // Cleanup
+            input.dispose();
+            prediction.dispose();
+        });
+
+        // Load model (only called after login)
+        async function loadModel() {
+            if (!currentUser) return;
+            
+            try {
+                model = await tf.loadLayersModel('tfjs_letters_model/model.json');
+                status.innerText = '✓ Model loaded! Draw a digit or letter to get started.';
+                status.style.background = '#d4edda';
+                status.style.color = '#155724';
+            } catch (err) {
+                status.innerText = '✗ Error loading model: ' + err.message;
+                status.style.background = '#f8d7da';
+                status.style.color = '#721c24';
+                console.error(err);
+            }
+        }
+        
+        // Don't auto-load model - wait for login
+    </script>
+</body>
+
+</html>
